@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteRepositoriesConfiguration">
+    <remote-repository>
+      <option name="id" value="1ce6d48e-ac88-402c-baa9-ebe5346ba0b7" />
+      <option name="name" value="1ce6d48e-ac88-402c-baa9-ebe5346ba0b7" />
+      <option name="url" value="http://maven.cheyaoshicorp.com/nexus/content/groups/public" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="d4f4e37b-ff0f-4934-988d-57efe30213ae" />
+      <option name="name" value="d4f4e37b-ff0f-4934-988d-57efe30213ae" />
+      <option name="url" value="http://maven.oschina.net/content/groups/public/" />
+    </remote-repository>
+  </component>
+</project>
