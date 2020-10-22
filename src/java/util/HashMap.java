@@ -333,6 +333,9 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * cheapest possible way to reduce systematic lossage, as well as
      * to incorporate impact of the highest bits that would otherwise
      * never be used in index calculations because of table bounds.
+     *
+     * cici
+     * 高16位不变，低16和高16异或，保留高低位特征，减少hash碰撞
      */
     static final int hash(Object key) {
         int h;
@@ -624,44 +627,69 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
                    boolean evict) {
+        /*
+         * tab 哈希数组
+         * p
+         * n 哈希数组的长度
+         * i 待写入元素的hash值 取模 数组长度，(此处优化为 hash & (n-1)), 即应该被插入的位置
+         */
         Node<K,V>[] tab; Node<K,V> p; int n, i;
+        // 如果数组还未初始化或数组长度为0 TODO: 数组长度何时为0?
+        // 则初始化数组
         if ((tab = table) == null || (n = tab.length) == 0)
             n = (tab = resize()).length;
+        // 如果待插入哈希槽为空，直接插入元素，p指向待插入哈希槽的首个元素
         if ((p = tab[i = (n - 1) & hash]) == null)
             tab[i] = newNode(hash, key, value, null);
         else {
             Node<K,V> e; K k;
+            /*
+             * 判断哈希槽首个元素是否就是待插入元素或和待插入元素相等
+             * hash值相等 && （同一个元素 || 相同元素）
+             */
             if (p.hash == hash &&
                 ((k = p.key) == key || (key != null && key.equals(k))))
                 e = p;
+            // 如果哈希槽为红黑树，则执行红黑树的插入
             else if (p instanceof TreeNode)
                 e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
             else {
+                // 遍历hash槽的每个节点直至末尾，binCount用于记录哈希槽长度
                 for (int binCount = 0; ; ++binCount) {
-                    if ((e = p.next) == null) {
+                    if ((e = p.next) == null) { // 此处已到达hash槽末尾
+                        //插入待写入元素
                         p.next = newNode(hash, key, value, null);
+                        // 哈希槽长度大于8（即从当前元素插入位置为第九个开始），转换为红黑树
                         if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
                             treeifyBin(tab, hash);
                         break;
                     }
+                    // 遍历过程中再次判断当前元素是否是待插入元素或和插入元素相等
                     if (e.hash == hash &&
                         ((k = e.key) == key || (key != null && key.equals(k))))
                         break;
                     p = e;
                 }
             }
+            // 如果存在和待插入元素相同的值
             if (e != null) { // existing mapping for key
                 V oldValue = e.value;
+                // 如果需要覆盖旧值（onlyIfAbsent) 或者旧值为null，则覆盖旧值
                 if (!onlyIfAbsent || oldValue == null)
                     e.value = value;
+                // TODO: 分析LinkedHashMap中该函数的作用
                 afterNodeAccess(e);
+                // 返回key对应的旧值
                 return oldValue;
             }
         }
+        // TODO: 分析modCount作用
         ++modCount;
+        // 如果hash数组长度超过上限，对数组扩容
         if (++size > threshold)
             resize();
         afterNodeInsertion(evict);
+        // 如果插入的是新元素，返回null
         return null;
     }
 
