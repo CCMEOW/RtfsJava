@@ -782,12 +782,16 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     final void treeifyBin(Node<K,V>[] tab, int hash) {
         int n, index; Node<K,V> e;
+        // 一行代码挂一个面试系列（。
+        // 虽然hash槽长度超过上限，但是如果数组的长度还没够可以转红黑树的话，会直接扩容不会转红黑树
         if (tab == null || (n = tab.length) < MIN_TREEIFY_CAPACITY)
             resize();
-        else if ((e = tab[index = (n - 1) & hash]) != null) {
-            TreeNode<K,V> hd = null, tl = null;
+        else if ((e = tab[index = (n - 1) & hash]) != null) { //e指向hash槽第一个节点
+            TreeNode<K,V> hd = null, tl = null; //hd指向第一个节点，t1用于辅助建立前一个节点和后一个节点的双向链接
+            // 当while循环结束后，用TreeNode形成了一个双向链表，hd指向了链表头第一个节点, t1指向最后一个节点
+            // hd <-> ⭕️ <-> ⭕️ <-> ... <-> t1
             do {
-                TreeNode<K,V> p = replacementTreeNode(e, null);
+                TreeNode<K,V> p = replacementTreeNode(e, null); //拷贝原hash槽的node为treenode
                 if (tl == null)
                     hd = p;
                 else {
@@ -796,7 +800,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 }
                 tl = p;
             } while ((e = e.next) != null);
-            if ((tab[index] = hd) != null)
+            if ((tab[index] = hd) != null) //原hash槽指向新生成的双向链表
                 hd.treeify(tab);
         }
     }
@@ -821,6 +825,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      *         <tt>null</tt> if there was no mapping for <tt>key</tt>.
      *         (A <tt>null</tt> return can also indicate that the map
      *         previously associated <tt>null</tt> with <tt>key</tt>.)
+     *
+     *  删除元素，如果元素不存在返回null，存在返回删除该元素的value
      */
     public V remove(Object key) {
         Node<K,V> e;
@@ -842,12 +848,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                boolean matchValue, boolean movable) {
         Node<K,V>[] tab; Node<K,V> p; int n, index;
         if ((tab = table) != null && (n = tab.length) > 0 &&
-            (p = tab[index = (n - 1) & hash]) != null) {
+            (p = tab[index = (n - 1) & hash]) != null) { // p指向hash槽开头
             Node<K,V> node = null, e; K k; V v;
             if (p.hash == hash &&
-                ((k = p.key) == key || (key != null && key.equals(k))))
+                ((k = p.key) == key || (key != null && key.equals(k)))) //p就是待删除的元素
                 node = p;
-            else if ((e = p.next) != null) {
+            else if ((e = p.next) != null) { //否则从hash槽中找到待删除的元素
                 if (p instanceof TreeNode)
                     node = ((TreeNode<K,V>)p).getTreeNode(hash, key);
                 else {
@@ -1923,6 +1929,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
          * order, just a consistent insertion rule to maintain
          * equivalence across rebalancings. Tie-breaking further than
          * necessary simplifies testing a bit.
+         *
+         * 没啥特殊的意义，只是为了能以一致的规则并必然能够比较出两个对象的大小，方便测试
          */
         static int tieBreakOrder(Object a, Object b) {
             int d;
@@ -1936,10 +1944,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
 
         /**
          * Forms tree of the nodes linked from this node.
+         *
+         * 链表转红黑树流程，转化后的结果为一颗红黑树同时也是双向链表，并且保证
          */
         final void treeify(Node<K,V>[] tab) {
             TreeNode<K,V> root = null;
-            for (TreeNode<K,V> x = this, next; x != null; x = next) {
+            for (TreeNode<K,V> x = this, next; x != null; x = next) { //初始x指向第一个节点
                 next = (TreeNode<K,V>)x.next;
                 x.left = x.right = null;
                 if (root == null) {
@@ -1947,20 +1957,22 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                     x.red = false;
                     root = x;
                 }
-                else {
+                else { // x此时为待加入红黑树的节点，p则为树上的节点
                     K k = x.key;
                     int h = x.hash;
                     Class<?> kc = null;
                     for (TreeNode<K,V> p = root;;) {
-                        int dir, ph;
+                        int dir, ph; // dir: 决定树向左还是向右查找
                         K pk = p.key;
+                        // hash值不等直接得出dir，相等则比较key
                         if ((ph = p.hash) > h)
                             dir = -1;
                         else if (ph < h)
                             dir = 1;
                         else if ((kc == null &&
-                                  (kc = comparableClassFor(k)) == null) ||
-                                 (dir = compareComparables(kc, k, pk)) == 0)
+                                  (kc = comparableClassFor(k)) == null) || // k没有实现Comparable接口
+                                 (dir = compareComparables(kc, k, pk)) == 0) // k和pk不是同一个类型无法比较
+                            // 前面这都比不出来，只能用class name和系统生成的hash值（非override的hash值）来比较了
                             dir = tieBreakOrder(k, pk);
 
                         TreeNode<K,V> xp = p;
@@ -2249,28 +2261,44 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             return root;
         }
 
+        // 可参考 https://juejin.im/entry/6844903454767317005#%E7%BA%A2%E9%BB%91%E6%A0%91%E7%9A%84%E5%B9%B3%E8%A1%A1%E6%8F%92%E5%85%A5
         static <K,V> TreeNode<K,V> balanceInsertion(TreeNode<K,V> root,
                                                     TreeNode<K,V> x) {
             x.red = true;
             for (TreeNode<K,V> xp, xpp, xppl, xppr;;) {
-                if ((xp = x.parent) == null) {
+                if ((xp = x.parent) == null) { // x为根节点，直接涂成黑色
                     x.red = false;
                     return x;
                 }
-                else if (!xp.red || (xpp = xp.parent) == null)
+                else if (!xp.red || (xpp = xp.parent) == null) //父节点是黑色或者父节点是根节点
                     return root;
-                if (xp == (xppl = xpp.left)) {
+                if (xp == (xppl = xpp.left)) { //父节点是祖父节点的左子节点
                     if ((xppr = xpp.right) != null && xppr.red) {
+                        //
+                        /*
+                         * 叔叔节点存在且为为红节点，此时二叉树为下图左，需要涂色为下图右
+                         *        黑(xpp)                      红(xpp)
+                         *   红(xppl)    红(xppr)  -->    黑(xppl)    黑(xppr)
+                         * 红(x)                        红(x)
+                         *
+                         */
                         xppr.red = false;
                         xp.red = false;
                         xpp.red = true;
-                        x = xpp;
+                        x = xpp; //如果xppp为红色，涂完后不符合红色节点的两个子节点都是黑色原则，此处将x指向xpp作为插入节点，再次循环判断
                     }
-                    else {
-                        if (x == xp.right) {
+                    else { //叔叔节点不存在或为黑节点
+                        if (x == xp.right) { // 如果x为右子节点，则以xp为支点进行左旋，此时xp变为x的左子节点，则和下一个if（x为左子节点）的情况一致，继续处理
+                            /**
+                             *             黑(xpp)         左旋         黑(xpp)
+                             *  红(xppl/xp)      黑(xppr) ----->    红(原x)   黑(xppr)
+                             *          红(x)                    红(原xp)
+                             *
+                             */
                             root = rotateLeft(root, x = xp);
                             xpp = (xp = x.parent) == null ? null : xp.parent;
                         }
+                        // x为右子节点, 父节点涂为黑色，祖父节点涂为红色，对祖父节点右旋
                         if (xp != null) {
                             xp.red = false;
                             if (xpp != null) {
