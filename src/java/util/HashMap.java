@@ -377,6 +377,14 @@ public class HashMap<K,V> extends AbstractMap<K,V>
 
     /**
      * Returns a power of two size for the given target capacity.
+     * 返回>=cap的最小的2的幂
+     * 算法思路: 2的幂的二进制为0...010...0, 则将n从左往右数第一个1，之后的位全部变为1，然后+1，即最近的2的幂
+     * 假设n 为0000 01xx xxxx xxxx
+     * n >>> 1 -> 0000 001x xxxx xxxx
+     * n|n>>>1 -> 0000 011x xxxx xxxx
+     * ...
+     * n >>> 16 -> 0000 0000 0000 0000
+     * n|n>>>16 -> 0000 0111 1111 1111
      */
     static final int tableSizeFor(int cap) {
         int n = cap - 1;
@@ -720,10 +728,13 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         }
         else if (oldThr > 0) // initial capacity was placed in threshold
             newCap = oldThr;
-        else {               // zero initial threshold signifies using defaults
+        else {               // zero initial threshold signifies using defaults 初始化, cap为16，threshold为12(使用默认设置)
             newCap = DEFAULT_INITIAL_CAPACITY;
             newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
         }
+        /**
+         * new HashMap时指定了初始容量会出现这种情况，需要重新计算threshold
+         */
         if (newThr == 0) {
             float ft = (float)newCap * loadFactor;
             newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY ?
@@ -736,15 +747,26 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         if (oldTab != null) {
             for (int j = 0; j < oldCap; ++j) {
                 Node<K,V> e;
-                if ((e = oldTab[j]) != null) {
+                if ((e = oldTab[j]) != null) { // e指向hash槽第一个节点
                     oldTab[j] = null;
-                    if (e.next == null)
-                        newTab[e.hash & (newCap - 1)] = e;
-                    else if (e instanceof TreeNode)
+                    if (e.next == null) // hash槽只有一个元素
+                        newTab[e.hash & (newCap - 1)] = e; //重新计算index
+                    else if (e instanceof TreeNode) // hash槽超过一个节点且为红黑树
                         ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
                     else { // preserve order
-                        Node<K,V> loHead = null, loTail = null;
-                        Node<K,V> hiHead = null, hiTail = null;
+                        // hash槽超过一个节点且为链表, 将hash槽分为两组，且保持原来的顺序不变
+                        /**
+                         * 假设oldCap为0...01...0（以下为了方便说明，将0...01...0中为1的那位记做α位）
+                         * 以元素的α位是0还是1作为分类标准，将原hash槽的元素分为两批
+                         * 原因：
+                         * 当cap为2的幂时，α位为0的节点rehash等于原结果，否则等于原结果+oldCap(
+                         * 假设oldCap为0100, newCap为1000，
+                         * 1. 节点e的hash值eh为x1xx，则eh&(oldCap-1)=00??，eh&(newCap-1)=01??，即newIndex = oldIndex << 1即原位置+oldCap
+                         * 2. 节点e的hash值eh为x0xx, 则eh&(oldCap-1)=00xx，eh&(newCap-1)=00xx，即newIndex = oldIndex
+                         * （此处感叹数组长度为2的幂设计得也太牛逼了）
+                         */
+                        Node<K,V> loHead = null, loTail = null; //loHead: α位为0的元素构成的新链表的头部
+                        Node<K,V> hiHead = null, hiTail = null; //hiHead: α位为1的元素构成的新链表的头部
                         Node<K,V> next;
                         do {
                             next = e.next;
@@ -763,11 +785,11 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
-                        if (loTail != null) {
+                        if (loTail != null) { //α位为0的元素位置不变
                             loTail.next = null;
                             newTab[j] = loHead;
                         }
-                        if (hiTail != null) {
+                        if (hiTail != null) { //α位为1的元素位置+oldCap
                             hiTail.next = null;
                             newTab[j + oldCap] = hiHead;
                         }
