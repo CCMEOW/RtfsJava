@@ -718,14 +718,18 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         int oldThr = threshold;
         int newCap, newThr = 0;
         if (oldCap > 0) {
+            //容量已达到最大值，将threshold也设为最大值后直接返回
             if (oldCap >= MAXIMUM_CAPACITY) {
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             }
+            //容量加倍后没有到达最大容量，则阈值也加倍
             else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                      oldCap >= DEFAULT_INITIAL_CAPACITY)
                 newThr = oldThr << 1; // double threshold
         }
+        // 实例化HashMap时指定了初始容量，则容量初始化为旧的阈值，也就是说指定HashMap初始容量的化并不会直接指定容量，而是指定阈值，在这个地方再初始化容量。
+        // 即懒加载策略，如果只是实例化HashMap而不put值的话，是不会为table分配内存的
         else if (oldThr > 0) // initial capacity was placed in threshold
             newCap = oldThr;
         else {               // zero initial threshold signifies using defaults 初始化, cap为16，threshold为12(使用默认设置)
@@ -733,7 +737,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
         }
         /**
-         * new HashMap时指定了初始容量会出现这种情况，需要重新计算threshold
+         * new HashMap时指定了初始容量会出现这种情况，需要重新计算threshold，和上文对应起来的话，
+         * new HashMap<>(5)，会将阈值作为一个临时变量记为8，而容量为0，当实际put元素时会将阈值赋给容量，再重新计算阈值
          */
         if (newThr == 0) {
             float ft = (float)newCap * loadFactor;
@@ -754,7 +759,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                     else if (e instanceof TreeNode) // hash槽超过一个节点且为红黑树
                         ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
                     else { // preserve order
-                        // hash槽超过一个节点且为链表, 将hash槽分为两组，且保持原来的顺序不变
+                        // hash槽超过一个节点且为链表, 将hash槽分为两组，且保持原来的顺序不变(这里是对jdk7链表头尾相连造成死锁问题的优化，但红黑树也会导致死循环问题)
                         /**
                          * 假设oldCap为0...01...0（以下为了方便说明，将0...01...0中为1的那位记做α位）
                          * 以元素的α位是0还是1作为分类标准，将原hash槽的元素分为两批
