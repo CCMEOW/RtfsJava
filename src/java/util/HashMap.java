@@ -562,6 +562,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * distinguish these two cases.
      *
      * @see #put(Object, Object)
+     *
+     * 当key不存在时和value为null时都会返回null
      */
     public V get(Object key) {
         Node<K,V> e;
@@ -578,14 +580,14 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     final Node<K,V> getNode(int hash, Object key) {
         Node<K,V>[] tab; Node<K,V> first, e; int n; K k;
         if ((tab = table) != null && (n = tab.length) > 0 &&
-            (first = tab[(n - 1) & hash]) != null) {
-            if (first.hash == hash && // always check first node
+            (first = tab[(n - 1) & hash]) != null) { // hash table已经被初始化且bucket不为空
+            if (first.hash == hash && // always check first node 先检查第一个节点是不是要查找的节点
                 ((k = first.key) == key || (key != null && key.equals(k))))
                 return first;
-            if ((e = first.next) != null) {
-                if (first instanceof TreeNode)
+            if ((e = first.next) != null) { // 查找bucket
+                if (first instanceof TreeNode) //红黑树查找节点
                     return ((TreeNode<K,V>)first).getTreeNode(hash, key);
-                do {
+                do { // 链表顺序遍历查找
                     if (e.hash == hash &&
                         ((k = e.key) == key || (key != null && key.equals(k))))
                         return e;
@@ -1881,6 +1883,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
 
         /**
          * Returns root of tree containing this node.
+         * 返回红黑树的根节点
          */
         final TreeNode<K,V> root() {
             for (TreeNode<K,V> r = this, p;;) {
@@ -1927,32 +1930,33 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             do {
                 int ph, dir; K pk;
                 TreeNode<K,V> pl = p.left, pr = p.right, q;
-                if ((ph = p.hash) > h)
+                if ((ph = p.hash) > h) // 当前节点hash值大于待查找节点，向左查找
                     p = pl;
-                else if (ph < h)
+                else if (ph < h) //当前节点hash值小于待查找节点，向右查找
                     p = pr;
-                else if ((pk = p.key) == k || (k != null && k.equals(pk)))
+                else if ((pk = p.key) == k || (k != null && k.equals(pk))) // 当前节点就是待查找节点，直接返回
                     return p;
-                else if (pl == null)
+                else if (pl == null) // 左子节点为空，向右查找
                     p = pr;
-                else if (pr == null)
+                else if (pr == null) // 右子节点为空，向左查找
                     p = pl;
                 else if ((kc != null ||
-                          (kc = comparableClassFor(k)) != null) &&
+                          (kc = comparableClassFor(k)) != null) && // 待查找节点实现了Comparable接口，则调用Comparable比较大小决定向左还是向右
                          (dir = compareComparables(kc, k, pk)) != 0)
                     p = (dir < 0) ? pl : pr;
-                else if ((q = pr.find(h, k, kc)) != null)
+                else if ((q = pr.find(h, k, kc)) != null) // 以上都不符合，则先查找右子树
                     return q;
-                else
+                else // 最后查找左子树
                     p = pl;
             } while (p != null);
-            return null;
+            return null; // 找不到则返回null
         }
 
         /**
          * Calls find for root node.
          */
         final TreeNode<K,V> getTreeNode(int h, Object k) {
+            // 如果调用的节点不是红黑树的根节点，则先获取根节点再从根节点开始查找
             return ((parent != null) ? root() : this).find(h, k, null);
         }
 
