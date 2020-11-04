@@ -489,6 +489,7 @@ public final class System {
      *               because of a type mismatch.
      * @exception  NullPointerException if either <code>src</code> or
      *               <code>dest</code> is <code>null</code>.
+     * 将src从srcPos拷贝length个元素到dest的destPos
      */
     public static native void arraycopy(Object src,  int  srcPos,
                                         Object dest, int destPos,
