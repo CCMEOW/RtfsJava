@@ -139,12 +139,12 @@ public class LinkedList<E>
      */
     void linkLast(E e) {
         final Node<E> l = last;
-        final Node<E> newNode = new Node<>(l, e, null);
-        last = newNode;
+        final Node<E> newNode = new Node<>(l, e, null); //新插入的节点的before指向原来的last，可以构成双向链表
+        last = newNode; //last始终指向新插入的节点
         if (l == null)
-            first = newNode;
+            first = newNode; //链表为空，则初始化first
         else
-            l.next = newNode;
+            l.next = newNode; //否则加到末尾
         size++;
         modCount++;
     }
@@ -333,6 +333,8 @@ public class LinkedList<E>
      *
      * @param e element to be appended to this list
      * @return {@code true} (as specified by {@link Collection#add})
+     *
+     * 加一个元素到链表末尾
      */
     public boolean add(E e) {
         linkLast(e);
@@ -502,13 +504,14 @@ public class LinkedList<E>
      * @param index index at which the specified element is to be inserted
      * @param element element to be inserted
      * @throws IndexOutOfBoundsException {@inheritDoc}
+     * 插入节点到指定位置，该位置及之后的节点向后移动一位，如原链表为a->b->c，add(1, d)之后为a->d->b->c
      */
     public void add(int index, E element) {
-        checkPositionIndex(index);
+        checkPositionIndex(index); //检查index是否超出链表范围
 
-        if (index == size)
+        if (index == size) // 加到末尾
             linkLast(element);
-        else
+        else //加到链表中间
             linkBefore(element, node(index));
     }
 
@@ -562,6 +565,7 @@ public class LinkedList<E>
 
     /**
      * Returns the (non-null) Node at the specified element index.
+     * 返回指定位置的节点，先二分一次，然后左半部分向后查找，右半部分向前查找
      */
     Node<E> node(int index) {
         // assert isElementIndex(index);
