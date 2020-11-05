@@ -791,6 +791,12 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * when table is null, holds the initial table size to use upon
      * creation, or 0 for default. After initialization, holds the
      * next element count value upon which to resize the table.
+     *
+     * 用来控制hash数组创建和resize
+     * 负数代表正在创建或正在resize: -1->正在创建; -(1+x) x表示正在resize的线程数
+     * hash数组未创建前，sizeCtl=用于创建的初始化容量（或默认值0)
+     * hash数组创建完成后，sizeCtl=扩容阈值
+     *
      */
     private transient volatile int sizeCtl;
 
@@ -1012,41 +1018,41 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         int hash = spread(key.hashCode());
         int binCount = 0;
         for (Node<K,V>[] tab = table;;) {
-            Node<K,V> f; int n, i, fh;
+            Node<K,V> f; int n, i, fh; //f: bucket第一个节点
             if (tab == null || (n = tab.length) == 0)
                 tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) { //bucket为空
                 if (casTabAt(tab, i, null,
-                             new Node<K,V>(hash, key, value, null)))
+                             new Node<K,V>(hash, key, value, null))) //cas将bucket第一个节点置为待插入元素
                     break;                   // no lock when adding to empty bin
             }
-            else if ((fh = f.hash) == MOVED)
+            else if ((fh = f.hash) == MOVED) //bucket节点为MOVED，说明正在扩容
                 tab = helpTransfer(tab, f);
             else {
                 V oldVal = null;
-                synchronized (f) {
-                    if (tabAt(tab, i) == f) {
-                        if (fh >= 0) {
+                synchronized (f) { // 锁住bucket的第一个节点
+                    if (tabAt(tab, i) == f) { // f仍然是第一个节点
+                        if (fh >= 0) { // f是普通节点
                             binCount = 1;
                             for (Node<K,V> e = f;; ++binCount) {
                                 K ek;
                                 if (e.hash == hash &&
                                     ((ek = e.key) == key ||
-                                     (ek != null && key.equals(ek)))) {
+                                     (ek != null && key.equals(ek)))) { // 存在相同key的元素
                                     oldVal = e.val;
-                                    if (!onlyIfAbsent)
+                                    if (!onlyIfAbsent) // 如果允许覆盖旧值
                                         e.val = value;
                                     break;
                                 }
                                 Node<K,V> pred = e;
-                                if ((e = e.next) == null) {
+                                if ((e = e.next) == null) { // 在bucket末尾插入新元素
                                     pred.next = new Node<K,V>(hash, key,
                                                               value, null);
                                     break;
                                 }
                             }
                         }
-                        else if (f instanceof TreeBin) {
+                        else if (f instanceof TreeBin) { // f是红黑树节点
                             Node<K,V> p;
                             binCount = 2;
                             if ((p = ((TreeBin<K,V>)f).putTreeVal(hash, key,
@@ -2219,23 +2225,25 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
 
     /**
      * Initializes table, using the size recorded in sizeCtl.
+     *
+     * 初始化hash数组
      */
     private final Node<K,V>[] initTable() {
         Node<K,V>[] tab; int sc;
         while ((tab = table) == null || tab.length == 0) {
-            if ((sc = sizeCtl) < 0)
-                Thread.yield(); // lost initialization race; just spin
-            else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
+            if ((sc = sizeCtl) < 0) //正在创建
+                Thread.yield(); // lost initialization race; just spin 让出cpu（可以再次争取到）
+            else if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) { //尝试将sizeCtl置为-1
                 try {
-                    if ((tab = table) == null || tab.length == 0) {
+                    if ((tab = table) == null || tab.length == 0) { //再次看数组有没有被初始化
                         int n = (sc > 0) ? sc : DEFAULT_CAPACITY;
                         @SuppressWarnings("unchecked")
                         Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
                         table = tab = nt;
-                        sc = n - (n >>> 2);
+                        sc = n - (n >>> 2); //sc = 0.75n
                     }
                 } finally {
-                    sizeCtl = sc;
+                    sizeCtl = sc; //sizeCtl = 扩容阈值
                 }
                 break;
             }
@@ -2321,7 +2329,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      */
     private final void tryPresize(int size) {
         int c = (size >= (MAXIMUM_CAPACITY >>> 1)) ? MAXIMUM_CAPACITY :
-            tableSizeFor(size + (size >>> 1) + 1);
+            tableSizeFor(size + (size >>> 1) + 1); // TODO: c的作用是什么？为什么不直接写成 size <<< 1？
         int sc;
         while ((sc = sizeCtl) >= 0) {
             Node<K,V>[] tab = table; int n;
