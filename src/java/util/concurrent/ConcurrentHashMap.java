@@ -2108,6 +2108,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      *
      * @return the number of mappings
      * @since 1.8
+     *
+     * 用来代替size(), 因为ConcurrentHahMap的大小可能超过Integer最大值。
+     * 返回的是数量的估值，准确大小可能会因为并发插入/删除而有所不同
      */
     public long mappingCount() {
         long n = sumCount();
@@ -2258,11 +2261,18 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * after a transfer to see if another resize is already needed
      * because resizings are lagging additions.
      *
-     * @param x the count to add
-     * @param check if <0, don't check resize, if <= 1 only check if uncontended
+     * @param x the count to add 加x个
+     * @param check if <0, don't check resize, if <= 1 only check if uncontended -1不需要检查是否扩容，<=1只需要检查是否有竞争
      */
     private final void addCount(long x, int check) {
         CounterCell[] as; long b, s;
+        /**
+         * 增加size
+         * 1. 如果counterCells已经用过了直接用counterCells
+         * 2. 如果counterCells还是null则+baseCount
+         * 3. 如果baseCount cas更新失败了还是cas更新counterCells
+         * 4. 如果cas更新counterCells也失败了则使用fullAddCount
+         */
         if ((as = counterCells) != null ||
             !U.compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
             CounterCell a; long v; int m;
@@ -2516,6 +2526,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         CounterCell(long x) { value = x; }
     }
 
+    // ConcurrentHashMap的大小 = counterCells的和 + baseCount
     final long sumCount() {
         CounterCell[] as = counterCells; CounterCell a;
         long sum = baseCount;
