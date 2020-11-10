@@ -975,6 +975,7 @@ public class ThreadLocalRandom extends Random {
      * Returns the probe value for the current thread without forcing
      * initialization. Note that invoking ThreadLocalRandom.current()
      * can be used to force initialization on zero return.
+     * 返回线程的probe探针值，这个值一般不会和别的线程重复。
      */
     static final int getProbe() {
         return UNSAFE.getInt(Thread.currentThread(), PROBE);
