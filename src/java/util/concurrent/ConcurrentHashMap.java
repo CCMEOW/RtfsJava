@@ -748,6 +748,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * and so in principle require only release ordering, not
      * full volatile semantics, but are currently coded as volatile
      * writes to be conservative.
+     *
+     * 返回数组元素的volatile
      */
 
     @SuppressWarnings("unchecked")
@@ -796,7 +798,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * 负数代表正在创建或正在resize: -1->正在创建; -(1+x) x表示正在resize的线程数
      * hash数组未创建前，sizeCtl=用于创建的初始化容量（或默认值0)
      * hash数组创建完成后，sizeCtl=扩容阈值
-     *
+     * 为什么sc<-1表示正在扩容，可以看resizeStamp()
      */
     private transient volatile int sizeCtl;
 
@@ -1017,11 +1019,12 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         if (key == null || value == null) throw new NullPointerException();
         int hash = spread(key.hashCode());
         int binCount = 0;
+        //自旋插入节点
         for (Node<K,V>[] tab = table;;) {
             Node<K,V> f; int n, i, fh; //f: bucket第一个节点
             if (tab == null || (n = tab.length) == 0)
                 tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) { //bucket为空
+            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) { //bucket为空，注意此处使用tabAt获取valotile元素：虽然数组本身有volatile修饰，但修饰的仅为数组的引用，具体到元素需要使用tabAt
                 if (casTabAt(tab, i, null,
                              new Node<K,V>(hash, key, value, null))) //cas将bucket第一个节点置为待插入元素
                     break;                   // no lock when adding to empty bin
@@ -2221,6 +2224,13 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /**
      * Returns the stamp bits for resizing a table of size n.
      * Must be negative when shifted left by RESIZE_STAMP_SHIFT.
+     *
+     * 扩容标记，当n不同时，返回值也不同
+     * 例: n = 16(0000 0000 0000 0000 0000 0000 0001 0000)
+     * Integer.numberOfLeadingZeros(n) = 0000 0000 0000 0000 0000 0000 0001 1011
+     * 1 << (RESIZE_STAMP_BITS - 1) = 0000 0000 0000 0000 1000 0000 0000 0000 （这个左移16位之后就变成了负数，因此赋值给sizeCtl为负的，妙啊:P
+     * resizeStamp(16) = 0000 0000 0000 0000 1000 0000 0001 1011
+     *
      */
     static final int resizeStamp(int n) {
         return Integer.numberOfLeadingZeros(n) | (1 << (RESIZE_STAMP_BITS - 1));
@@ -2288,12 +2298,21 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 return;
             s = sumCount();
         }
-        if (check >= 0) {
+        if (check >= 0) { //需要检查是否要扩容
             Node<K,V>[] tab, nt; int n, sc;
+            //容量s>=扩容阈值且数组容量小于最大容量，则扩容
             while (s >= (long)(sc = sizeCtl) && (tab = table) != null &&
                    (n = tab.length) < MAXIMUM_CAPACITY) {
                 int rs = resizeStamp(n);
-                if (sc < 0) {
+                if (sc < 0) { //多个线程正在扩容
+                    /**
+                     * 如果当前线程不能帮助扩容，则直接退出，否则尝试帮助扩容
+                     * 1. (sc >>> RESIZE_STAMP_SHIFT) != rs 标志符发生变化，说明n（数组长度）变了
+                     * 2. sc == rs + 1 是个bug，已经在jdk12里面修好了，T^T 见 https://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8214427
+                     * 3. sc == rs + MAX_RESIZERS
+                     * 4. (nt = nextTable) == null
+                     * 5. transferIndex <= 0
+                     */
                     if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
                         sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||
                         transferIndex <= 0)
@@ -2301,6 +2320,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1))
                         transfer(tab, nt);
                 }
+                // rs << RESIZE_STAMP_SHIFT) + 2 低16位表示正在扩容的线程数，高16位表示扩容标记，这里+2是因为-1用来表示正在创建
                 else if (U.compareAndSwapInt(this, SIZECTL, sc,
                                              (rs << RESIZE_STAMP_SHIFT) + 2))
                     transfer(tab, null);
