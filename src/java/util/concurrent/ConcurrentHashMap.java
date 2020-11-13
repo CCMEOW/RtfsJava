@@ -568,6 +568,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      * serves as a lower bound to avoid resizers encountering
      * excessive memory contention.  The value should be at least
      * DEFAULT_CAPACITY.
+     *
+     * 最小转移步长，即最小处理的数组大小
      */
     private static final int MIN_TRANSFER_STRIDE = 16;
 
@@ -2304,25 +2306,25 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             while (s >= (long)(sc = sizeCtl) && (tab = table) != null &&
                    (n = tab.length) < MAXIMUM_CAPACITY) {
                 int rs = resizeStamp(n);
+                //int rs = resizeStamp(n) << RESIZE_STAMP_SHIFT; 为了修复bug[JDK-8214427]已改为这样
                 if (sc < 0) { //多个线程正在扩容
                     /**
                      * 如果当前线程不能帮助扩容，则直接退出，否则尝试帮助扩容
                      * 1. (sc >>> RESIZE_STAMP_SHIFT) != rs 标志符发生变化，说明n（数组长度）变了
-                     * 2. sc == rs + 1 是个bug，已经在jdk12里面修好了，T^T 见 https://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8214427
-                     * 3. sc == rs + MAX_RESIZERS
-                     * 4. (nt = nextTable) == null
-                     * 5. transferIndex <= 0
+                     * 2. sc == rs + 1 || sc == rs + MAX_RESIZERS 用来判断扩容是否已经完成，是个bug，已经在jdk12里面修好了，T^T 见 https://bugs.java.com/bugdatabase/view_bug.do?bug_id=JDK-8214427
+                     * 4. (nt = nextTable) == null 扩容的新数组还未创建完成
+                     * 5. transferIndex <= 0 任务被领完了，没有需要帮助扩容的数组了
                      */
                     if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
                         sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||
                         transferIndex <= 0)
                         break;
-                    if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1))
+                    if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) //尝试将标记参与扩容的线程数+1
                         transfer(tab, nt);
                 }
                 // rs << RESIZE_STAMP_SHIFT) + 2 低16位表示正在扩容的线程数，高16位表示扩容标记，这里+2是因为-1用来表示正在创建
                 else if (U.compareAndSwapInt(this, SIZECTL, sc,
-                                             (rs << RESIZE_STAMP_SHIFT) + 2))
+                                             (rs << RESIZE_STAMP_SHIFT) + 2)) //第一个尝试扩容的线程
                     transfer(tab, null);
                 s = sumCount();
             }
@@ -2404,6 +2406,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      */
     private final void transfer(Node<K,V>[] tab, Node<K,V>[] nextTab) {
         int n = tab.length, stride;
+        //n/8/cpu数，得到每个cpu处理的bucket数量，最小为16
         if ((stride = (NCPU > 1) ? (n >>> 3) / NCPU : n) < MIN_TRANSFER_STRIDE)
             stride = MIN_TRANSFER_STRIDE; // subdivide range
         if (nextTab == null) {            // initiating
