@@ -644,8 +644,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
          * i 待写入元素的hash值 取模 数组长度，(此处优化为 hash & (n-1)), 即应该被插入的位置
          */
         Node<K,V>[] tab; Node<K,V> p; int n, i;
-        // 如果数组还未初始化或数组长度为0 TODO: 数组长度何时为0?
-        // 则初始化数组
+        // 如果数组还未初始化或数组长度为0 则初始化数组
+        //TODO: 数组长度何时为0?
         if ((tab = table) == null || (n = tab.length) == 0)
             n = (tab = resize()).length;
         // 如果待插入哈希槽为空，直接插入元素，p指向待插入哈希槽的首个元素
@@ -693,7 +693,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 return oldValue;
             }
         }
-        // TODO: 分析modCount作用
+        // 修改次数+1，如果是用迭代器遍历hashmap，发现修改次数和预期不符合，则会触发fail-fast机制，直接抛出异常失败
         ++modCount;
         // 如果hash数组长度超过上限，对数组扩容
         if (++size > threshold)
@@ -1982,7 +1982,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         /**
          * Forms tree of the nodes linked from this node.
          *
-         * 链表转红黑树流程，转化后的结果为一颗红黑树同时也是双向链表，并且保证
+         * 链表转红黑树流程，转化后的结果为一颗红黑树同时也是双向链表，并且保证红黑树根节点在链表头部
          */
         final void treeify(Node<K,V>[] tab) {
             TreeNode<K,V> root = null;

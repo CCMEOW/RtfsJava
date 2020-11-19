@@ -2409,7 +2409,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         //n/8/cpu数，得到每个cpu处理的bucket数量，最小为16
         if ((stride = (NCPU > 1) ? (n >>> 3) / NCPU : n) < MIN_TRANSFER_STRIDE)
             stride = MIN_TRANSFER_STRIDE; // subdivide range
-        if (nextTab == null) {            // initiating
+        if (nextTab == null) {            // initiating 第一个扩容的线程负责创建原来两倍长度的新数组
             try {
                 @SuppressWarnings("unchecked")
                 Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n << 1];
@@ -2444,30 +2444,38 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                     advance = false;
                 }
             }
+            //当前线程扩容结束
+            //TODO: 三个条件分析
             if (i < 0 || i >= n || i + n >= nextn) {
                 int sc;
-                if (finishing) {
-                    nextTable = null;
-                    table = nextTab;
-                    sizeCtl = (n << 1) - (n >>> 1);
+                if (finishing) { //完成扩容后
+                    nextTable = null; //重置成员变量nextTable
+                    table = nextTab; //数组指向新数组
+                    sizeCtl = (n << 1) - (n >>> 1); //更新阈值为0.75n
                     return;
                 }
-                if (U.compareAndSwapInt(this, SIZECTL, sc = sizeCtl, sc - 1)) {
-                    if ((sc - 2) != resizeStamp(n) << RESIZE_STAMP_SHIFT)
+                //如果还没有完成扩容
+                if (U.compareAndSwapInt(this, SIZECTL, sc = sizeCtl, sc - 1)) { //帮助扩容的线程数-1
+                    // sc的低16位=（扩容线程数+1），因此如果sc-2的低16位变成0（即此表达式左右相等），说明当前线程为最后一个扩容线程，说明扩容结束
+                    if ((sc - 2) != resizeStamp(n) << RESIZE_STAMP_SHIFT)//表达式左右不等说明还有别的线程在扩容，还没有扩容结束
                         return;
-                    finishing = advance = true;
+                    finishing = advance = true; //扩容结束，标记finishing
                     i = n; // recheck before commit
                 }
             }
-            else if ((f = tabAt(tab, i)) == null)
+            else if ((f = tabAt(tab, i)) == null) //写入fwd节点占位
                 advance = casTabAt(tab, i, null, fwd);
             else if ((fh = f.hash) == MOVED)
-                advance = true; // already processed
-            else {
-                synchronized (f) {
-                    if (tabAt(tab, i) == f) {
+                advance = true; // already processed 已经被别的线程处理过了
+            else { //处理bucket
+                synchronized (f) { //锁住bucket第一个节点
+                    if (tabAt(tab, i) == f) { // double check
                         Node<K,V> ln, hn;
-                        if (fh >= 0) {
+                        if (fh >= 0) { // 说明该节点是链表节点（TODO：验证TreeBin的hash值都为-2)
+                            // 记n二进制为1的那位为α位，runBit为链表从后往前，α位保持不变的最后一个节点的α位的值，
+                            // 例1：链表α位为 0->1->0->1->1->1，则runBit为1，lastRun指向倒数第三个节点
+                            // 例2：链表α位为 1->0->0->0->0，则runBit为0，lastRun指向倒数第四个节点
+                            // lastRun后面都是相同的α位，因此重建低位高位链表时，遍历到lastRun则无需继续遍历
                             int runBit = fh & n;
                             Node<K,V> lastRun = f;
                             for (Node<K,V> p = f.next; p != null; p = p.next) {
@@ -2477,14 +2485,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                     lastRun = p;
                                 }
                             }
-                            if (runBit == 0) {
+                            if (runBit == 0) { //记录低位新链表节点
                                 ln = lastRun;
                                 hn = null;
                             }
-                            else {
+                            else { //记录高位新链表节点
                                 hn = lastRun;
                                 ln = null;
                             }
+                            // runBit为1（0），则hn（ln）指向α位为1的节点组成的链表，且顺序保持不变（从lastRun（包括）开始为原来的节点，其余为复制出来的new Node），ln（hn）指向α位为0的节点组成的链表，且顺序倒序（均为复制出来的new Node）
                             for (Node<K,V> p = f; p != lastRun; p = p.next) {
                                 int ph = p.hash; K pk = p.key; V pv = p.val;
                                 if ((ph & n) == 0)
@@ -2492,9 +2501,9 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                 else
                                     hn = new Node<K,V>(ph, pk, pv, hn);
                             }
-                            setTabAt(nextTab, i, ln);
-                            setTabAt(nextTab, i + n, hn);
-                            setTabAt(tab, i, fwd);
+                            setTabAt(nextTab, i, ln); //低位链表位置不变
+                            setTabAt(nextTab, i + n, hn); //高位链表位置为原位置+原数组长度
+                            setTabAt(tab, i, fwd); //旧的数组的位置放fwd占位
                             advance = true;
                         }
                         else if (f instanceof TreeBin) {
