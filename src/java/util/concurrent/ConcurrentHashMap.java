@@ -2403,6 +2403,20 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /**
      * Moves and/or copies the nodes in each bin to new table. See
      * above for explanation.
+     *
+     * 迁移bucket到新数组（可能是迁移原节点，或复制原节点）
+     * 假设原数组长度为64，即0,1,2,3,...,47,null,null,...,null, 一个stride为16
+     * 总体流程为从数组末端往前处理，主要需要五个变量，其中四个线程私有变量i, bound, advance，finishing 一个线程共享变量transferIndex
+     * 这五个变量的作用为：
+     * i -> 对于所有线程来说范围为[-1, 64]，对于单一线程来说范围为要处理的区间[bound, bound+stride]，用来遍历数组。
+     * bound -> 线程正在处理区间的最小index
+     * advance -> true表示需要尝试去推进一个stride（并不是一定会推进，如果不能推进或推进成功都会置为false）
+     * finishing -> 扩容是否完成，虽然每个线程都有自己的finishing变量，但只有最后一个线程在迁移结束后会将其置为true，即finishing用来标志整个迁移已经完成，不用finished的原因猜测时，当finishing为true时，并不会退出transfer，而是最后那个线程会从头开始再次检查是否每个bucket都处理完了，检查区间为[0, 64)
+     * transferIndex -> 剩余为处理的数组区间的最大index
+     * 处理流程如下：
+     * 第一个进来的线程A负责创建两倍长度的新数组，并领取旧数组区间[48, 64)负责迁移bucket, i从64递减到48, bound为48, tranferIndex为48
+     * 第二个进来的线程B领取区间[32, 48), i从48递减到32，bound为32, tranferIndex为32
+     * 假设线程A比线程B先处理完，观测到tranferIndex为32, 则从32往前领取区间[16, 32), i从32递减到16, bound为16，tranferIndex为16
      */
     private final void transfer(Node<K,V>[] tab, Node<K,V>[] nextTab) {
         int n = tab.length, stride;
@@ -2419,59 +2433,69 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 return;
             }
             nextTable = nextTab;
-            transferIndex = n;
+            transferIndex = n; //从旧的table的最末端开始处理
         }
         int nextn = nextTab.length;
-        ForwardingNode<K,V> fwd = new ForwardingNode<K,V>(nextTab);
-        boolean advance = true;
-        boolean finishing = false; // to ensure sweep before committing nextTab
-        for (int i = 0, bound = 0;;) {
+        ForwardingNode<K,V> fwd = new ForwardingNode<K,V>(nextTab); //放在bucket的占位符，表示已有线程负责
+        boolean advance = true; // advance表示是否需要尝试往前推进一个stride
+        boolean finishing = false; // to ensure sweep before committing nextTab 标记扩容是否结束
+        for (int i = 0, bound = 0;;) { //i初始化为0，从第二次循环开始，i为当前线程待处理bucket的index，每次循环减1，bound为当前线程在处理的stride的最小index
             Node<K,V> f; int fh;
-            while (advance) {
+            while (advance) { // 需要尝试推进一个stride
                 int nextIndex, nextBound;
-                if (--i >= bound || finishing)
+                if (--i >= bound || finishing) // i>=bound说明还没处理完这个stride，不需要推进，则标记advance为false。而当finishing为true时，只需要当前线程再次遍历一遍旧数组，double check已经处理完，这时候只有一个线程，也不存在分区间推进的问题了
                     advance = false;
-                else if ((nextIndex = transferIndex) <= 0) {
+                else if ((nextIndex = transferIndex) <= 0) { // transferIndex为还没有开始处理的数组区间的最大index(是所有线程共同维护的变量），为0表示没有待处理的区间了，则更新index i为-1，并标记advance为false
                     i = -1;
                     advance = false;
                 }
+                //更新剩余可处理区间的末端，减去一个stride
                 else if (U.compareAndSwapInt
                          (this, TRANSFERINDEX, nextIndex,
                           nextBound = (nextIndex > stride ?
-                                       nextIndex - stride : 0))) {
+                                       nextIndex - stride : 0))) { // 往前推进一个stride，如果剩余区间不足一个stride则推进剩余区间，并更新bound(当前线程可处理的最小index)，更新i为可处理区间的最大index
                     bound = nextBound;
                     i = nextIndex - 1;
                     advance = false;
                 }
             }
             //当前线程扩容结束
-            //TODO: 三个条件分析
+            // i < 0: 扩容结束，i=-1
+            // i >= n（原数组长度）越界了，不清楚什么时候会达成
+            // i + n（原数组长度） >= nextn（新数组长度）越界了，不清楚什么时候会达成
+            // 1号if
             if (i < 0 || i >= n || i + n >= nextn) {
                 int sc;
+                // 1.1号if
                 if (finishing) { //完成扩容后
                     nextTable = null; //重置成员变量nextTable
                     table = nextTab; //数组指向新数组
                     sizeCtl = (n << 1) - (n >>> 1); //更新阈值为0.75n
                     return;
                 }
-                //如果还没有完成扩容
+                // 1.2号if
+                // 到这里表示没有完成扩容，这段完整逻辑为：将帮助扩容的线程数-1，如果当前线程不是最后一个完成扩容的线程，则直接返回，
+                // 如果当前线程是最后一个完成扩容的线程，则负责收尾工作，即将finishing置为true，等待下一次进入1号if和1.1号if执行收尾工作
                 if (U.compareAndSwapInt(this, SIZECTL, sc = sizeCtl, sc - 1)) { //帮助扩容的线程数-1
                     // sc的低16位=（扩容线程数+1），因此如果sc-2的低16位变成0（即此表达式左右相等），说明当前线程为最后一个扩容线程，说明扩容结束
                     if ((sc - 2) != resizeStamp(n) << RESIZE_STAMP_SHIFT)//表达式左右不等说明还有别的线程在扩容，还没有扩容结束
                         return;
                     finishing = advance = true; //扩容结束，标记finishing
-                    i = n; // recheck before commit
+                    i = n; // recheck before commit i置为n，会重新for循环，而for循环开头的while循环必然会执行i--，所以再次到达1号if时i=n-1，会重新遍历一次，这次遍历每个bucket都应该时fwd节点，即这里所说的recheck，知道i再次变为-1时，进入1号if，进行收尾工作
                 }
             }
-            else if ((f = tabAt(tab, i)) == null) //写入fwd节点占位
+            else if ((f = tabAt(tab, i)) == null) //如果bucket没有节点，不需要处理，直接写入fwd节点占位表示处理过了
                 advance = casTabAt(tab, i, null, fwd);
-            else if ((fh = f.hash) == MOVED)
-                advance = true; // already processed 已经被别的线程处理过了
+            else if ((fh = f.hash) == MOVED) //说明为fwd节点，即已经被处理过了
+                advance = true; // already processed
             else { //处理bucket
                 synchronized (f) { //锁住bucket第一个节点
                     if (tabAt(tab, i) == f) { // double check
                         Node<K,V> ln, hn;
-                        if (fh >= 0) { // 说明该节点是链表节点（TODO：验证TreeBin的hash值都为-2)
+                        /**
+                         * fh>=0表示该节点是链表节点，因为TreeBin hash值固定为-2, {@link TreeBin#TreeBin }
+                         */
+                        if (fh >= 0) {
                             // 记n二进制为1的那位为α位，runBit为链表从后往前，α位保持不变的最后一个节点的α位的值，
                             // 例1：链表α位为 0->1->0->1->1->1，则runBit为1，lastRun指向倒数第三个节点
                             // 例2：链表α位为 1->0->0->0->0，则runBit为0，lastRun指向倒数第四个节点
@@ -2501,10 +2525,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                 else
                                     hn = new Node<K,V>(ph, pk, pv, hn);
                             }
-                            setTabAt(nextTab, i, ln); //低位链表位置不变
-                            setTabAt(nextTab, i + n, hn); //高位链表位置为原位置+原数组长度
+                            setTabAt(nextTab, i, ln); //低位链表位置不变且链表顺序不变
+                            setTabAt(nextTab, i + n, hn); //高位链表位置为原位置+原数组长度，链表倒序
                             setTabAt(tab, i, fwd); //旧的数组的位置放fwd占位
-                            advance = true;
+                            advance = true; // 标记是否推进为true，这样下一次循环会尝试推进一个stride
                         }
                         else if (f instanceof TreeBin) {
                             TreeBin<K,V> t = (TreeBin<K,V>)f;
