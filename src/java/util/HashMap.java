@@ -1158,6 +1158,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         return null;
     }
 
+    /**
+     * 如果key对应的value存在且不为null，则返回，否则执行mappingFunction并写入(key, value)
+     * @param key
+     * @param mappingFunction
+     * @return
+     */
     @Override
     public V computeIfAbsent(K key,
                              Function<? super K, ? extends V> mappingFunction) {
@@ -1171,7 +1177,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         if (size > threshold || (tab = table) == null ||
             (n = tab.length) == 0)
             n = (tab = resize()).length;
-        if ((first = tab[i = (n - 1) & hash]) != null) {
+        if ((first = tab[i = (n - 1) & hash]) != null) { //如果key对应的bucket不为null，则尝试找key对应的value
             if (first instanceof TreeNode)
                 old = (t = (TreeNode<K,V>)first).getTreeNode(hash, key);
             else {
@@ -1186,25 +1192,25 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 } while ((e = e.next) != null);
             }
             V oldValue;
-            if (old != null && (oldValue = old.value) != null) {
+            if (old != null && (oldValue = old.value) != null) { // key存在且value不为null则直接返回value
                 afterNodeAccess(old);
                 return oldValue;
             }
         }
         V v = mappingFunction.apply(key);
-        if (v == null) {
+        if (v == null) { // 如果提供的值也为null直接返回
             return null;
-        } else if (old != null) {
+        } else if (old != null) { // 如果key存在，（结合之前的判断说明旧的value为null)，则更新值为v并返回
             old.value = v;
             afterNodeAccess(old);
             return v;
         }
-        else if (t != null)
+        else if (t != null) // key不存在且bucket有红黑树节点，则执行红黑树插入
             t.putTreeVal(this, tab, hash, key, v);
-        else {
+        else { // key不存在则插入链表头部，这里是头插法
             tab[i] = newNode(hash, key, v, first);
             if (binCount >= TREEIFY_THRESHOLD - 1)
-                treeifyBin(tab, hash);
+                treeifyBin(tab, hash); // 转红黑树
         }
         ++modCount;
         ++size;
