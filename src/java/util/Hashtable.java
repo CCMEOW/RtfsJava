@@ -362,9 +362,9 @@ public class Hashtable<K,V>
     public synchronized V get(Object key) {
         Entry<?,?> tab[] = table;
         int hash = key.hashCode();
-        int index = (hash & 0x7FFFFFFF) % tab.length;
+        int index = (hash & 0x7FFFFFFF) % tab.length; // 计算索引
         for (Entry<?,?> e = tab[index] ; e != null ; e = e.next) {
-            if ((e.hash == hash) && e.key.equals(key)) {
+            if ((e.hash == hash) && e.key.equals(key)) { // 遍历链表找到值
                 return (V)e.value;
             }
         }
@@ -385,6 +385,8 @@ public class Hashtable<K,V>
      * efficiently.  This method is called automatically when the
      * number of keys in the hashtable exceeds this hashtable's capacity
      * and load factor.
+     *
+     * 扩容流程
      */
     @SuppressWarnings("unchecked")
     protected void rehash() {
@@ -392,7 +394,7 @@ public class Hashtable<K,V>
         Entry<?,?>[] oldMap = table;
 
         // overflow-conscious code
-        int newCapacity = (oldCapacity << 1) + 1;
+        int newCapacity = (oldCapacity << 1) + 1; // 扩容为 原来2n+1(n为原数组长度)
         if (newCapacity - MAX_ARRAY_SIZE > 0) {
             if (oldCapacity == MAX_ARRAY_SIZE)
                 // Keep running with MAX_ARRAY_SIZE buckets
@@ -402,7 +404,7 @@ public class Hashtable<K,V>
         Entry<?,?>[] newMap = new Entry<?,?>[newCapacity];
 
         modCount++;
-        threshold = (int)Math.min(newCapacity * loadFactor, MAX_ARRAY_SIZE + 1);
+        threshold = (int)Math.min(newCapacity * loadFactor, MAX_ARRAY_SIZE + 1); // 临界值为0.75n或最大值
         table = newMap;
 
         for (int i = oldCapacity ; i-- > 0 ;) {
@@ -410,9 +412,9 @@ public class Hashtable<K,V>
                 Entry<K,V> e = old;
                 old = old.next;
 
-                int index = (e.hash & 0x7FFFFFFF) % newCapacity;
+                int index = (e.hash & 0x7FFFFFFF) % newCapacity; // 新的索引位置
                 e.next = (Entry<K,V>)newMap[index];
-                newMap[index] = e;
+                newMap[index] = e; // 链表整个放到新位置
             }
         }
     }
@@ -433,7 +435,7 @@ public class Hashtable<K,V>
         // Creates the new entry.
         @SuppressWarnings("unchecked")
         Entry<K,V> e = (Entry<K,V>) tab[index];
-        tab[index] = new Entry<>(hash, key, value, e);
+        tab[index] = new Entry<>(hash, key, value, e); //头插法，新节点加到链表头部
         count++;
     }
 
