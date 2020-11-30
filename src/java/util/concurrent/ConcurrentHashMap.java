@@ -946,13 +946,13 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
         int h = spread(key.hashCode());
         if ((tab = table) != null && (n = tab.length) > 0 &&
             (e = tabAt(tab, (n - 1) & h)) != null) {
-            if ((eh = e.hash) == h) {
+            if ((eh = e.hash) == h) { // 头节点就是要查找的节点
                 if ((ek = e.key) == key || (ek != null && key.equals(ek)))
                     return e.val;
             }
-            else if (eh < 0)
+            else if (eh < 0) // 查找红黑树节点/fwd节点/ReservationNode(compute相关方法使用)
                 return (p = e.find(h, key)) != null ? p.val : null;
-            while ((e = e.next) != null) {
+            while ((e = e.next) != null) { // 遍历查找链表
                 if (e.hash == h &&
                     ((ek = e.key) == key || (ek != null && key.equals(ek))))
                     return e.val;
@@ -2887,23 +2887,30 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
 
         /**
          * Possibly blocks awaiting root lock.
+         * 处理读写竞争的情况，因为put时已经有synchronized锁住头节点，所以不会出现写写竞争
          */
         private final void contendedLock() {
             boolean waiting = false;
+            //自旋加锁
             for (int s;;) {
+                // WRITER 0001 写锁 WAITER 0010 等待 READER 0100 读锁
+                // 如果是lockState是00x0则不是读锁也不是写锁状态(应该是无锁状态或者等待状态）
                 if (((s = lockState) & ~WAITER) == 0) {
-                    if (U.compareAndSwapInt(this, LOCKSTATE, s, WRITER)) {
-                        if (waiting)
+                    if (U.compareAndSwapInt(this, LOCKSTATE, s, WRITER)) { //尝试cas将lockState置为writer（获取写锁）
+                        if (waiting) //如果
                             waiter = null;
                         return;
                     }
                 }
+                // 如果lockState是xx0x（是写锁状态或读锁状态，而这里是不会出现写锁状态的，所以应是读锁状态）锁状态改为0110, 下一次循环会到最后一个elseif
+                // 而当下一个线程进来时，锁状态是0110，不符合和任何一个条件，则会一直自旋
                 else if ((s & WAITER) == 0) {
                     if (U.compareAndSwapInt(this, LOCKSTATE, s, s | WAITER)) {
                         waiting = true;
                         waiter = Thread.currentThread();
                     }
                 }
+                // 如果已经在等待，则暂停线程（不释放锁）(在get方法里会唤醒线程）
                 else if (waiting)
                     LockSupport.park(this);
             }
@@ -2918,14 +2925,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             if (k != null) {
                 for (Node<K,V> e = first; e != null; ) {
                     int s; K ek;
-                    if (((s = lockState) & (WAITER|WRITER)) != 0) {
+                    if (((s = lockState) & (WAITER|WRITER)) != 0) { // WAITER|WRITER = 0011, 则lockState不是xx00所以不是读锁，则用红黑树的双向链表结构进行线性查找
+                        // 如果当前节点就是要查找的节点，则返回当前节点，否则遍历至下一个节点
                         if (e.hash == h &&
                             ((ek = e.key) == k || (ek != null && k.equals(ek))))
                             return e;
                         e = e.next;
                     }
                     else if (U.compareAndSwapInt(this, LOCKSTATE, s,
-                                                 s + READER)) {
+                                                 s + READER)) { // 如果已经持有读锁，则记录读线程数加1（+READER）
                         TreeNode<K,V> r, p;
                         try {
                             p = ((r = root) == null ? null :
@@ -2933,8 +2941,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                         } finally {
                             Thread w;
                             if (U.getAndAddInt(this, LOCKSTATE, -READER) ==
-                                (READER|WAITER) && (w = waiter) != null)
-                                LockSupport.unpark(w);
+                                (READER|WAITER) && (w = waiter) != null) // 如果是最后一个读线程并且有写线程在等待锁
+                                LockSupport.unpark(w); //唤醒正在等待写锁的线程
                         }
                         return p;
                     }
