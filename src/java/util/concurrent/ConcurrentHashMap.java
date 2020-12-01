@@ -2902,8 +2902,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                         return;
                     }
                 }
-                // 如果lockState是xx0x（是写锁状态或读锁状态，而这里是不会出现写锁状态的，所以应是读锁状态）锁状态改为0110, 下一次循环会到最后一个elseif
-                // 而当下一个线程进来时，锁状态是0110，不符合和任何一个条件，则会一直自旋
+                // 如果lockState是xx0x（是写锁状态或读锁状态，而这里是不会出现写锁状态的，所以应是读锁状态, 读锁状态为xx00(不包括0000)）锁状态改为xx10(不包括0010), 下一次循环会到最后一个elseif
                 else if ((s & WAITER) == 0) {
                     if (U.compareAndSwapInt(this, LOCKSTATE, s, s | WAITER)) {
                         waiting = true;
@@ -2925,15 +2924,19 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             if (k != null) {
                 for (Node<K,V> e = first; e != null; ) {
                     int s; K ek;
-                    if (((s = lockState) & (WAITER|WRITER)) != 0) { // WAITER|WRITER = 0011, 则lockState不是xx00所以不是读锁，则用红黑树的双向链表结构进行线性查找
+                    // WAITER|WRITER = 0011, 则lockState不是xx00所以不是读锁也不是无锁，可能为:
+                    // 1. 写锁 红黑树结构可能改变，所有用双向链表查找
+                    // 2. 有写进程在等待，为了减少写进程等待时间，用红黑树的双向链表结构进行线性查找
+                    if (((s = lockState) & (WAITER|WRITER)) != 0) {
                         // 如果当前节点就是要查找的节点，则返回当前节点，否则遍历至下一个节点
                         if (e.hash == h &&
                             ((ek = e.key) == k || (ek != null && k.equals(ek))))
                             return e;
                         e = e.next;
                     }
+                    // 如果当前无锁或无线程在等待写锁，记录读线程数加1（+READER）
                     else if (U.compareAndSwapInt(this, LOCKSTATE, s,
-                                                 s + READER)) { // 如果已经持有读锁，则记录读线程数加1（+READER）
+                                                 s + READER)) {
                         TreeNode<K,V> r, p;
                         try {
                             p = ((r = root) == null ? null :
