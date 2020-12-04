@@ -2530,8 +2530,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                             setTabAt(tab, i, fwd); //旧的数组的位置放fwd占位
                             advance = true; // 标记是否推进为true，这样下一次循环会尝试推进一个stride
                         }
-                        else if (f instanceof TreeBin) {
+                        else if (f instanceof TreeBin) { //红黑树迁移
                             TreeBin<K,V> t = (TreeBin<K,V>)f;
+                            // lo指向低位链表开头，loTail指向低位链表末尾
+                            // hi指向高位链表开头，hiTail指向高位链表末尾
                             TreeNode<K,V> lo = null, loTail = null;
                             TreeNode<K,V> hi = null, hiTail = null;
                             int lc = 0, hc = 0;
@@ -2556,14 +2558,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                                     ++hc;
                                 }
                             }
+                            // 节点<=6个，需要反树化，否则重新创建一颗红黑树
                             ln = (lc <= UNTREEIFY_THRESHOLD) ? untreeify(lo) :
                                 (hc != 0) ? new TreeBin<K,V>(lo) : t;
                             hn = (hc <= UNTREEIFY_THRESHOLD) ? untreeify(hi) :
                                 (lc != 0) ? new TreeBin<K,V>(hi) : t;
-                            setTabAt(nextTab, i, ln);
+                            setTabAt(nextTab, i, ln); // 将新bucket写到对应位置
                             setTabAt(nextTab, i + n, hn);
-                            setTabAt(tab, i, fwd);
-                            advance = true;
+                            setTabAt(tab, i, fwd); // 标记该位置已处理过（fwd占位）
+                            advance = true; // 标记为可以尝试推进
                         }
                     }
                 }
@@ -2688,15 +2691,17 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     /**
      * Replaces all linked nodes in bin at given index unless table is
      * too small, in which case resizes instead.
+     * 尝试将bucket转红黑树，如果hash table长度没有达到树化的最小长度（64），则走扩容
      */
     private final void treeifyBin(Node<K,V>[] tab, int index) {
         Node<K,V> b; int n, sc;
         if (tab != null) {
             if ((n = tab.length) < MIN_TREEIFY_CAPACITY)
                 tryPresize(n << 1);
-            else if ((b = tabAt(tab, index)) != null && b.hash >= 0) {
+            else if ((b = tabAt(tab, index)) != null && b.hash >= 0) { // bucket头节点是链表节点
                 synchronized (b) {
-                    if (tabAt(tab, index) == b) {
+                    if (tabAt(tab, index) == b) { // double check
+                        // 根据bucket复制出一个双向链表, hd指向链表头节点
                         TreeNode<K,V> hd = null, tl = null;
                         for (Node<K,V> e = b; e != null; e = e.next) {
                             TreeNode<K,V> p =
@@ -2825,6 +2830,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
 
         /**
          * Creates bin with initial set of nodes headed by b.
+         * 从链表创建一颗红黑树
          */
         TreeBin(TreeNode<K,V> b) {
             super(TREEBIN, null, null, null);
