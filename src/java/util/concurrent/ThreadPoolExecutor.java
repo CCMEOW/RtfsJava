@@ -916,8 +916,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             // 退出不处理任务的条件，需要满足条件1和条件1.1 1.2 1.3中任意一个：
             // 1. 线程池状态为0123，即不再接受新线程
             //      1.1 线程池状态为123（不再处理阻塞任务）
-            //      1.2 任务不为null（到这个条件时，线程池是关闭状态，不再接受新任务，所以任务不为null则无法处理）
-            //      1.3 阻塞队列为空（到这个条件，线程池是关闭状态，可以处理阻塞任务，但无阻塞任务需要处理）
+            //      1.2 任务不为null（到这个条件时，线程池是SHUTDOWN关闭状态，不再接受新任务，所以任务不为null则无法处理）
+            //      1.3 阻塞队列为空（到这个条件，线程池是SHUTDOWN关闭状态，可以处理阻塞任务，但无阻塞任务需要处理）
             if (rs >= SHUTDOWN &&
                 ! (rs == SHUTDOWN &&
                    firstTask == null &&
@@ -933,7 +933,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                 if (wc >= CAPACITY ||
                     wc >= (core ? corePoolSize : maximumPoolSize))
                     return false;
-                // 尝试cas将worker数量+1，如果失败则回到开头重试
+                // 尝试cas将worker数量+1，如果成功则break
                 if (compareAndIncrementWorkerCount(c))
                     break retry;
                 // 到这里说明wordkerCount发生变化，cas失败了，则重新读取线程池状态
@@ -1398,17 +1398,21 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          */
         int c = ctl.get();
         if (workerCountOf(c) < corePoolSize) { // 如果worker数量小于核心线程数
-            if (addWorker(command, true))
-                return;
+            if (addWorker(command, true)) // 尝试用核心线程数量为上限去执行任务
+                return; // 到这里说明添加worker，启动线程成功，直接返回
             c = ctl.get();
         }
-        if (isRunning(c) && workQueue.offer(command)) {
+        if (isRunning(c) && workQueue.offer(command)) { // 如果线程池为RUNNING状态，且成功添加任务到阻塞队列
             int recheck = ctl.get();
-            if (! isRunning(recheck) && remove(command))
-                reject(command);
+            if (! isRunning(recheck) && remove(command)) // double check，如果线程不是RUNNING状态，则移除任务
+                reject(command); // 执行拒绝策略
             else if (workerCountOf(recheck) == 0)
                 addWorker(null, false);
         }
+        // 这个else if有两种可能：
+        // 1. 线程池不是RUNNING状态 如果command不为null（是新任务），执行addWorker会失败
+        // 2. 添加任务到阻塞队列失败（可能由于超过阻塞队列最大值）
+        // 则尝试用最大线程数量为上限去执行任务
         else if (!addWorker(command, false))
             reject(command);
     }
