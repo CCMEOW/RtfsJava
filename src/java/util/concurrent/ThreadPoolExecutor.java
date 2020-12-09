@@ -1027,8 +1027,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         final ReentrantLock mainLock = this.mainLock;
         mainLock.lock();
         try {
-            completedTaskCount += w.completedTasks;
-            workers.remove(w);
+            completedTaskCount += w.completedTasks; // 统计完成的任务数量
+            workers.remove(w); // 移除worker
         } finally {
             mainLock.unlock();
         }
@@ -1036,14 +1036,16 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         tryTerminate();
 
         int c = ctl.get();
-        if (runStateLessThan(c, STOP)) {
-            if (!completedAbruptly) {
-                int min = allowCoreThreadTimeOut ? 0 : corePoolSize;
-                if (min == 0 && ! workQueue.isEmpty())
+        if (runStateLessThan(c, STOP)) { // 如果线程池是RUNNING或者SHUTDOWN状态
+            if (!completedAbruptly) { // 如果不是异常退出
+                int min = allowCoreThreadTimeOut ? 0 : corePoolSize; // 线程池允许保留的最小线程数量：如果开启了核心线程超时设置，则最小数量是0，否则是核心线程数量
+                if (min == 0 && ! workQueue.isEmpty()) // 如果最小允许保留数量为0，且阻塞队列还没有处理完，则置为1
                     min = 1;
+                // 如果当前线程数量大于最小线程数量，则无需操作直接返回
                 if (workerCountOf(c) >= min)
                     return; // replacement not needed
             }
+            // 如果是异常退出，或者worker数量小于最小线程数量，则新增一个worker去处理阻塞队列里面的任务
             addWorker(null, false);
         }
     }
@@ -1053,17 +1055,18 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * current configuration settings, or returns null if this worker
      * must exit because of any of:
      * 1. There are more than maximumPoolSize workers (due to
-     *    a call to setMaximumPoolSize).
-     * 2. The pool is stopped.
-     * 3. The pool is shutdown and the queue is empty.
+     *    a call to setMaximumPoolSize). workers数量超过最大线程数量
+     * 2. The pool is stopped. 线程池被stopped
+     * 3. The pool is shutdown and the queue is empty. 线程池被shutdown且阻塞队列为空
      * 4. This worker timed out waiting for a task, and timed-out
-     *    workers are subject to termination (that is,
+     *    workers are subject to termination (that is, worker等待task超时
      *    {@code allowCoreThreadTimeOut || workerCount > corePoolSize})
      *    both before and after the timed wait, and if the queue is
      *    non-empty, this worker is not the last thread in the pool.
      *
      * @return task, or null if the worker must exit, in which case
      *         workerCount is decremented
+     *
      */
     private Runnable getTask() {
         boolean timedOut = false; // Did the last poll() time out?
@@ -1073,30 +1076,34 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             int rs = runStateOf(c);
 
             // Check if queue empty only if necessary.
+            // 如果 1. 线程池是STOP/TIDYING/TERMINATED状态（不再处理阻塞任务） 或 2. 线程池是SHUTDOWN状态且阻塞队列为空
+            // 则workder数量-1并返回null
             if (rs >= SHUTDOWN && (rs >= STOP || workQueue.isEmpty())) {
                 decrementWorkerCount();
                 return null;
             }
 
-            int wc = workerCountOf(c);
+            int wc = workerCountOf(c); // 获取当前worker数量
 
-            // Are workers subject to culling?
+            // Are workers subject to culling? 是否启用超时设置：== 启用核心线程超时销毁机制 或 worker数量超过核心线程数
             boolean timed = allowCoreThreadTimeOut || wc > corePoolSize;
 
+            // （如果worker数量超过最大线程数 或者 启用超时设置且已超时） 且 TODO（worker数量大于1 或 阻塞队列为空）
             if ((wc > maximumPoolSize || (timed && timedOut))
                 && (wc > 1 || workQueue.isEmpty())) {
-                if (compareAndDecrementWorkerCount(c))
+                if (compareAndDecrementWorkerCount(c)) // worker数量-1
                     return null;
                 continue;
             }
 
             try {
+                // 从阻塞队列获取一个task，如果启用了超时设置，超过keepAliveTime时间后会返回null
                 Runnable r = timed ?
                     workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) :
                     workQueue.take();
-                if (r != null)
+                if (r != null) // 如果成功拿到task则返回该task
                     return r;
-                timedOut = true;
+                timedOut = true; // 否则标记为已经超时
             } catch (InterruptedException retry) {
                 timedOut = false;
             }
@@ -1149,26 +1156,30 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     final void runWorker(Worker w) {
         Thread wt = Thread.currentThread();
         Runnable task = w.firstTask;
-        w.firstTask = null;
+        w.firstTask = null; // 重置worker的task
         w.unlock(); // allow interrupts
         boolean completedAbruptly = true;
         try {
+            // 如果task不为null则执行task，否则从阻塞队列中获取task(getTask())
             while (task != null || (task = getTask()) != null) {
                 w.lock();
                 // If pool is stopping, ensure thread is interrupted;
                 // if not, ensure thread is not interrupted.  This
                 // requires a recheck in second case to deal with
                 // shutdownNow race while clearing interrupt
+                // 确保如果线程池是STOP/TIDYING/TERMINATED（简称STOPPING)状态，线程被中断；否则线程不被中断（清除中断状态）
+                // 步骤为：1. 如果线程池是STOPPING状态且线程未被中断，则标记线程中断状态 2. 清除线程中断状态，再次查看线程池状态，如果是STOPPING状态则去标记线程为中断状态
                 if ((runStateAtLeast(ctl.get(), STOP) ||
                      (Thread.interrupted() &&
                       runStateAtLeast(ctl.get(), STOP))) &&
                     !wt.isInterrupted())
                     wt.interrupt();
                 try {
+                    // 执行前的回调
                     beforeExecute(wt, task);
                     Throwable thrown = null;
                     try {
-                        task.run();
+                        task.run(); // 执行task
                     } catch (RuntimeException x) {
                         thrown = x; throw x;
                     } catch (Error x) {
@@ -1176,11 +1187,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     } catch (Throwable x) {
                         thrown = x; throw new Error(x);
                     } finally {
-                        afterExecute(task, thrown);
+                        afterExecute(task, thrown); // 执行后的回调
                     }
                 } finally {
                     task = null;
-                    w.completedTasks++;
+                    w.completedTasks++; //完成的task数量+1
                     w.unlock();
                 }
             }
