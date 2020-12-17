@@ -1237,6 +1237,8 @@ class Thread implements Runnable {
      *          if any thread has interrupted the current thread. The
      *          <i>interrupted status</i> of the current thread is
      *          cleared when this exception is thrown.
+     *
+     *  假设主线程为mainThread, 调用线程为subThread
      */
     public final synchronized void join(long millis)
     throws InterruptedException {
@@ -1247,11 +1249,11 @@ class Thread implements Runnable {
             throw new IllegalArgumentException("timeout value is negative");
         }
 
-        if (millis == 0) {
-            while (isAlive()) {
-                wait(0);
+        if (millis == 0) { // 如果没有指定等待时间，则无限等待
+            while (isAlive()) { // 当subThread存活时
+                wait(0); // 调用subThread的wait方法，使mainThread等待。wait需要获取对象锁，因此此方法由synchronized修饰
             }
-        } else {
+        } else { //如果指定了等待时间，则在有限时间内等待
             while (isAlive()) {
                 long delay = millis - now;
                 if (delay <= 0) {
