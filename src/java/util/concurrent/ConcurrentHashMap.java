@@ -2289,6 +2289,8 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             !U.compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
             CounterCell a; long v; int m;
             boolean uncontended = true;
+            // ThreadLocalRandom.getProbe() & m 获取线程应该更新的counterCells的index
+            // 如果counterCells是null或者长度小于1或者待更新位置的元素为null或者cas更新counterCells失败
             if (as == null || (m = as.length - 1) < 0 ||
                 (a = as[ThreadLocalRandom.getProbe() & m]) == null ||
                 !(uncontended =
@@ -2670,15 +2672,15 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                 try {                           // Initialize table
                     if (counterCells == as) {
                         CounterCell[] rs = new CounterCell[2];
-                        rs[h & 1] = new CounterCell(x);
+                        rs[h & 1] = new CounterCell(x); // 记录值
                         counterCells = rs;
-                        init = true;
+                        init = true; // 标记初始化并赋值成功
                     }
                 } finally {
-                    cellsBusy = 0;
+                    cellsBusy = 0; // 清除busy标记
                 }
                 if (init)
-                    break;
+                    break; // 如果成功则退出自旋
             }
             //这个if说明线程进入方法counterCells时还未被初始化，但很快被别的线程初始化或锁定，则再次尝试cas更新baseCount，如果失败，再次自旋
             else if (U.compareAndSwapLong(this, BASECOUNT, v = baseCount, v + x))

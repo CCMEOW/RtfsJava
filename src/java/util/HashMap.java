@@ -720,7 +720,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         int oldThr = threshold;
         int newCap, newThr = 0;
         if (oldCap > 0) {
-            //容量已达到最大值，将threshold也设为最大值后直接返回
+            //容量已达到最大值，将threshold也设为最大值后直接返回 TODO: 超过hashmap能存储的最大容量怎么处理？
             if (oldCap >= MAXIMUM_CAPACITY) {
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
