@@ -128,21 +128,21 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          */
         final boolean nonfairTryAcquire(int acquires) {
             final Thread current = Thread.currentThread();
-            int c = getState();
-            if (c == 0) {
-                if (compareAndSetState(0, acquires)) {
-                    setExclusiveOwnerThread(current);
-                    return true;
+            int c = getState(); // TODO: 许可证数量？
+            if (c == 0) { // 如果锁空闲
+                if (compareAndSetState(0, acquires)) { // cas更新许可证数量
+                    setExclusiveOwnerThread(current); // 设置当前线程为持有锁的线程
+                    return true; // 返回获取锁成功
                 }
             }
-            else if (current == getExclusiveOwnerThread()) {
-                int nextc = c + acquires;
-                if (nextc < 0) // overflow
+            else if (current == getExclusiveOwnerThread()) { // 如果当前线程就是持有锁的线程
+                int nextc = c + acquires; // 计算新的许可证数量
+                if (nextc < 0) // overflow 溢出抛异常
                     throw new Error("Maximum lock count exceeded");
-                setState(nextc);
+                setState(nextc); // 更新许可证数量（即可重入次数）
                 return true;
             }
-            return false;
+            return false; // 锁被占用且当前线程不是持有锁的线程，返回获取锁失败，需要等待
         }
 
         protected final boolean tryRelease(int releases) {
@@ -203,8 +203,8 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          * acquire on failure.
          */
         final void lock() {
-            if (compareAndSetState(0, 1))
-                setExclusiveOwnerThread(Thread.currentThread());
+            if (compareAndSetState(0, 1)) // 锁空闲时直接尝试cas获取（不管有无线程已在排队，因此为非公平锁）
+                setExclusiveOwnerThread(Thread.currentThread()); // 设置当前线程为持有锁的线程
             else
                 acquire(1);
         }
@@ -362,7 +362,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      *         thread; and {@code false} otherwise
      */
     public boolean tryLock() {
-        return sync.nonfairTryAcquire(1);
+        return sync.nonfairTryAcquire(1); // 尝试获取锁，参数1表示将许可证数量+1
     }
 
     /**

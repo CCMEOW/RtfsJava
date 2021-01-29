@@ -942,6 +942,8 @@ class Thread implements Runnable {
      *          <code>false</code> otherwise.
      * @see #isInterrupted()
      * @revised 6.0
+     *
+     *
      */
     public static boolean interrupted() {
         return currentThread().isInterrupted(true);
