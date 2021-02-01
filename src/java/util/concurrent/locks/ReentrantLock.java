@@ -128,7 +128,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          */
         final boolean nonfairTryAcquire(int acquires) {
             final Thread current = Thread.currentThread();
-            int c = getState(); // TODO: 许可证数量？
+            int c = getState();
             if (c == 0) { // 如果锁空闲
                 if (compareAndSetState(0, acquires)) { // cas更新许可证数量
                     setExclusiveOwnerThread(current); // 设置当前线程为持有锁的线程

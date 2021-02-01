@@ -384,16 +384,16 @@ public abstract class AbstractQueuedSynchronizer
         static final Node EXCLUSIVE = null;
 
         /** waitStatus value to indicate thread has cancelled */
-        static final int CANCELLED =  1;
+        static final int CANCELLED =  1; // 表示线程获取锁的请求已经取消了
         /** waitStatus value to indicate successor's thread needs unparking */
-        static final int SIGNAL    = -1;
+        static final int SIGNAL    = -1; // 表示线程已经准备好了，就等资源释放了
         /** waitStatus value to indicate thread is waiting on condition */
-        static final int CONDITION = -2;
+        static final int CONDITION = -2; // 表示节点在等待队列中，节点线程等待唤醒
         /**
          * waitStatus value to indicate the next acquireShared should
          * unconditionally propagate
          */
-        static final int PROPAGATE = -3;
+        static final int PROPAGATE = -3; // 当前线程处在SHARED情况下，该字段才会使用
 
         /**
          * Status field, taking on only the values:
@@ -743,15 +743,19 @@ public abstract class AbstractQueuedSynchronizer
      * Cancels an ongoing attempt to acquire.
      *
      * @param node the node
+     *
+     * 标记节点为CANCELLED状态
+     * TODO: 什么异常会导致走cancelAcquire?
      */
     private void cancelAcquire(Node node) {
         // Ignore if node doesn't exist
         if (node == null)
             return;
 
-        node.thread = null;
+        node.thread = null; // 清除线程
 
-        // Skip cancelled predecessors
+        // 加深同步队列为 a1 <-> b-1 <-> c1 <-> d1 <-> node (<-> e-1)，经过这一步后变为 a1 <-> b-1(next指向node) <- c1 <-> c1 -> node(prev指向b-1) (<-> e-1)
+        // Skip cancelled predecessors 向前遍历找到最近一个不是取消状态的节点并连线
         Node pred = node.prev;
         while (pred.waitStatus > 0)
             node.prev = pred = pred.prev;
@@ -766,25 +770,32 @@ public abstract class AbstractQueuedSynchronizer
         // Before, we are free of interference from other threads.
         node.waitStatus = Node.CANCELLED;
 
-        // If we are the tail, remove ourselves.
+        // If we are the tail, remove ourselves. 如果node是末尾节点，则把tail设置为node.prev即b-1(等同于去掉了node节点)
         if (node == tail && compareAndSetTail(node, pred)) {
-            compareAndSetNext(pred, predNext, null);
+            compareAndSetNext(pred, predNext, null); // 然后让b-1.next指向null, 即修改为 a1 <-> b-1 -> null
         } else {
             // If successor needs signal, try to set pred's next-link
             // so it will get one. Otherwise wake it up to propagate.
             int ws;
+            // 如果 1. node不是头节点的后继节点
+            // 且   2. (将pred状态变为SIGNAL)
+            //     2-1. pred的状态已经是SIGNAL
+            //     2-2. 或pred的状态是CONDITION/PROPAGATE且cas成功修改其状态为SIGNAL
+            // 且  3. pred的线程不为空
+            // 即pred不是头节点且是一个有效的SIGNAL状态的节点
             if (pred != head &&
                 ((ws = pred.waitStatus) == Node.SIGNAL ||
                  (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
                 pred.thread != null) {
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
+                    // pred.next指向node.next，即修改为 a1 <-> b-1(next指向e-1) <- c1 <-> c1 -> node(prev指向b-1) <-> e-1
                     compareAndSetNext(pred, predNext, next);
             } else {
                 unparkSuccessor(node);
             }
 
-            node.next = node; // help GC
+            node.next = node; // help GC 修改为 a1 <-> b-1(next指向e-1) <- c1 <-> c1 -> node(next指向自身) <- e-1
         }
     }
 
