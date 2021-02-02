@@ -637,7 +637,7 @@ public abstract class AbstractQueuedSynchronizer
 
     /**
      * Wakes up node's successor, if one exists.
-     *
+     * 唤醒节点的后继节点
      * @param node the node
      */
     private void unparkSuccessor(Node node) {
@@ -655,6 +655,10 @@ public abstract class AbstractQueuedSynchronizer
          * just the next node.  But if cancelled or apparently null,
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
+         *
+         * 如果node的后继节点s不是取消状态，则唤醒(unpark)s，否则从tail往前找到第一个不是取消状态的节点并唤醒
+         * ▶ 此处不从前往后的原因是，取消节点的next指针可能是指向自身的
+         * ▶
          */
         Node s = node.next;
         if (s == null || s.waitStatus > 0) {
@@ -745,7 +749,7 @@ public abstract class AbstractQueuedSynchronizer
      * @param node the node
      *
      * 标记节点为CANCELLED状态
-     * TODO: 什么异常会导致走cancelAcquire?
+     * TODO: 什么异常会导致走cancelAcquire? 已知: tryAcquire可能会抛出异常
      */
     private void cancelAcquire(Node node) {
         // Ignore if node doesn't exist
@@ -781,7 +785,7 @@ public abstract class AbstractQueuedSynchronizer
             // 且   2. (将pred状态变为SIGNAL)
             //     2-1. pred的状态已经是SIGNAL
             //     2-2. 或pred的状态是CONDITION/PROPAGATE且cas成功修改其状态为SIGNAL
-            // 且  3. pred的线程不为空
+            // 且  3. pred的线程不为空 TODO: 如果pred不是头节点，为什么thread会为null?
             // 即pred不是头节点且是一个有效的SIGNAL状态的节点
             if (pred != head &&
                 ((ws = pred.waitStatus) == Node.SIGNAL ||
@@ -792,6 +796,10 @@ public abstract class AbstractQueuedSynchronizer
                     // pred.next指向node.next，即修改为 a1 <-> b-1(next指向e-1) <- c1 <-> c1 -> node(prev指向b-1) <-> e-1
                     compareAndSetNext(pred, predNext, next);
             } else {
+                // 如果node是头节点的后继节点 或 pred状态不是且不能被修改为SIGNAL 或 pred线程为空（虚节点），唤醒node的后继节点
+                // 有一种场景是 a <-> b <- c，a需要唤醒b时b被取消，且b.next还没有指向c，因此next指针是不可靠的，需要通过pred唤醒
+                // 另一种场景是a去寻找c时，b <- c的关系也还没有建立，因此需要b取消时去唤醒c
+                // TODO: 需要详细分析以上场景出现的情况
                 unparkSuccessor(node);
             }
 
@@ -1290,6 +1298,8 @@ public abstract class AbstractQueuedSynchronizer
      */
     public final boolean release(int arg) {
         if (tryRelease(arg)) {
+            // 注意这里即使是非公平锁，也是去唤醒第一个节点，但这里仍不是公平的:
+            // 1. 因为新加入的线程在和第一个节点去争抢锁 2. 唤醒时如果后继节点是取消状态，则会从后向前尝试唤醒第一个非取消状态的节点（公平锁在唤醒时会看前面是否有其他排队的，非公平锁则不会看）
             Node h = head;
             if (h != null && h.waitStatus != 0)
                 unparkSuccessor(h);
