@@ -1026,7 +1026,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
             Node<K,V> f; int n, i, fh; //f: bucket第一个节点
             if (tab == null || (n = tab.length) == 0)
                 tab = initTable();
-            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) { //bucket为空，注意此处使用tabAt获取valotile元素：虽然数组本身有volatile修饰，但修饰的仅为数组的引用，具体到元素需要使用tabAt
+            else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) { //bucket为空，注意此处使用tabAt获取volatile元素：虽然数组本身有volatile修饰，但修饰的仅为数组的引用，具体到元素需要使用tabAt
                 if (casTabAt(tab, i, null,
                              new Node<K,V>(hash, key, value, null))) //cas将bucket第一个节点置为待插入元素
                     break;                   // no lock when adding to empty bin
@@ -2229,7 +2229,7 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
      *
      * 扩容标记，当n不同时，返回值也不同
      * 例: n = 16(0000 0000 0000 0000 0000 0000 0001 0000)
-     * Integer.numberOfLeadingZeros(n) = 0000 0000 0000 0000 0000 0000 0001 1011
+     * Integer.numberOfLeadingZeros(n) = 27(0000 0000 0000 0000 0000 0000 0001 1011)
      * 1 << (RESIZE_STAMP_BITS - 1) = 0000 0000 0000 0000 1000 0000 0000 0000 （这个左移16位之后就变成了负数，因此赋值给sizeCtl为负的，妙啊:P
      * resizeStamp(16) = 0000 0000 0000 0000 1000 0000 0001 1011
      *
@@ -2339,14 +2339,17 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
     final Node<K,V>[] helpTransfer(Node<K,V>[] tab, Node<K,V> f) {
         Node<K,V>[] nextTab; int sc;
         if (tab != null && (f instanceof ForwardingNode) &&
-            (nextTab = ((ForwardingNode<K,V>)f).nextTable) != null) {
+            (nextTab = ((ForwardingNode<K,V>)f).nextTable) != null) { // 如果table不为空且bucket头节点为ForwardingNode标记节点，且nextTable不为空，说明正在扩容
             int rs = resizeStamp(tab.length);
             while (nextTab == nextTable && table == tab &&
-                   (sc = sizeCtl) < 0) {
+                   (sc = sizeCtl) < 0) { // while(正在扩容)
+                /**
+                 *  如果当前线程能不能帮助扩容，则退出循环，详见 {@link java.util.concurrent.ConcurrentHashMap#addCount}
+                 */
                 if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
                     sc == rs + MAX_RESIZERS || transferIndex <= 0)
                     break;
-                if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) {
+                if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1)) { // 参与扩容线程数+1
                     transfer(tab, nextTab);
                     break;
                 }
@@ -2498,9 +2501,10 @@ public class ConcurrentHashMap<K,V> extends AbstractMap<K,V>
                          * fh>=0表示该节点是链表节点，因为TreeBin hash值固定为-2, {@link TreeBin#TreeBin }
                          */
                         if (fh >= 0) {
-                            // 记n二进制为1的那位为α位，runBit为链表从后往前，α位保持不变的最后一个节点的α位的值，
-                            // 例1：链表α位为 0->1->0->1->1->1，则runBit为1，lastRun指向倒数第三个节点
-                            // 例2：链表α位为 1->0->0->0->0，则runBit为0，lastRun指向倒数第四个节点
+                            // n为table长度，假设为16(0000 0000 0001 0000)，记为1的那位为α位，假设fh（链表节点的hash值）为14(0000 0000 0000 1110)，则fh & n = 0000 0000 0001 0000，则fh & n的α位为1。任一fh & n的结果要么α位为0要么为1
+                            // runBit为链表从前往后，fh & n结果的α位保持不变的最后一个节点的α位的值，
+                            // 例1：链表α位为 0 -> 1 -> 0 -> 1 -> 1 -> 1，则runBit依次为 0 -> 1 -> 0 -> 1，最终为1，lastRun指向第四个节点
+                            // 例2：链表α位为 1 -> 0 -> 0 -> 0 -> 0，则runBit依次为1 -> 0, 最终为0，lastRun指向第二个节点
                             // lastRun后面都是相同的α位，因此重建低位高位链表时，遍历到lastRun则无需继续遍历
                             int runBit = fh & n;
                             Node<K,V> lastRun = f;
