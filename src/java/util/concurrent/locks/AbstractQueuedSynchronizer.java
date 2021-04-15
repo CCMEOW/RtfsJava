@@ -657,6 +657,7 @@ public abstract class AbstractQueuedSynchronizer
          * non-cancelled successor.
          *
          * 如果node的后继节点s不是取消状态，则唤醒(unpark)s，否则从tail往前找到第一个不是取消状态的节点并唤醒
+         * waitStatus > 0 即为CANCELED状态
          * ▶ 此处不从前往后的原因是，取消节点的next指针可能是指向自身的
          * ▶
          */
